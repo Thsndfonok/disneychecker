@@ -25,7 +25,7 @@ jobs:
         pip install selenium webdriver-manager
     
     - name: Run checker
-      run: python disney_checker.py
+      run: python disneychecker.py
     
     - name: Upload results
       uses: actions/upload-artifact@v4
