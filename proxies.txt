@@ -1,0 +1,10 @@
+# Proxies for rotation
+# Format: ip:port or protocol://ip:port
+# Examples:
+# 192.168.1.1:8080
+# http://proxy.example.com:3128
+# https://user:pass@proxy.com:8080
+#
+# Add your proxies below (one per line):
+
+http://yTg8rp3X06p0YJ89Sp-res-ANY:Tg4d1ePvWOC49Ie@gw.thunderproxy.net:5959
