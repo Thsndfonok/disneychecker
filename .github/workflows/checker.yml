@@ -22,12 +22,13 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install selenium webdriver-manager
+        pip install undetected-chromedriver selenium
     
-    - name: Run checker
+    - name: Run Disney+ Checker
       run: python disneychecker.py
     
     - name: Upload results
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: results
