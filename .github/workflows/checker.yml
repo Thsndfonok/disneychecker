@@ -2,6 +2,8 @@ name: Disney+ Account Checker
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
   check:
@@ -15,24 +17,30 @@ jobs:
       with:
         python-version: '3.11'
     
-    - name: Install Chrome
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y chromium-browser
-    
     - name: Install dependencies
       run: |
-        pip install undetected-chromedriver selenium
+        pip install requests
     
     - name: Run Disney+ Checker
       run: python disneychecker.py
     
-    - name: Upload results
+    - name: Upload working accounts
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: results
-        path: |
-          WORKING_ACCOUNTS.txt
-          INVALID_ACCOUNTS.txt
-          TWOFA_ACCOUNTS.txt
+        name: working-accounts
+        path: WORKING_ACCOUNTS.txt
+    
+    - name: Upload invalid accounts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: invalid-accounts
+        path: INVALID_ACCOUNTS.txt
+    
+    - name: Upload 2FA accounts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: twofa-accounts
+        path: TWOFA_ACCOUNTS.txt
